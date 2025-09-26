@@ -1,13 +1,16 @@
-package monitor
+package monitorui
 
 import (
 	"encoding/json"
 	"os"
+	"regexp"
+	"strconv"
 	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
+
 	"github.com/ryo-del/devops-toolkit/internal/monitor"
 )
 
@@ -15,10 +18,12 @@ type Config struct {
 	Monitor MonitorConfig `json:"monitor"`
 }
 type MonitorConfig struct {
-	Interval int `json:"interval"` // интервал обновления в секундах
+	Interval int `json:"interval"` // секунды
 }
 
 var config MonitorConfig
+
+var numberRe = regexp.MustCompile(`\d+(\.\d+)?`) // ищем число вида 12 или 12.34
 
 func NewMonitorTab() fyne.CanvasObject {
 	// читаем конфиг
@@ -35,42 +40,72 @@ func NewMonitorTab() fyne.CanvasObject {
 	}
 	config = cfg.Monitor
 
-	// создаём лейблы
-	cpuLabel := widget.NewLabel("Loading CPU...")
-	memLabel := widget.NewLabel("Loading Memory...")
-	diskLabel := widget.NewLabel("Loading Disk...")
-	netLabel := widget.NewLabel("Loading Network...")
-	hostLabel := widget.NewLabel("Loading Host Info...")
+	// widgets
+	cpuBar := widget.NewProgressBar()
+	memBar := widget.NewProgressBar()
+	diskBar := widget.NewProgressBar()
 
-	// отдельная функция для обновления лейбла
-	updateLabel := func(label *widget.Label, getData func() (string, error)) {
+	cpuLabel := widget.NewLabel("CPU: loading...")
+	memLabel := widget.NewLabel("Memory: loading...")
+	diskLabel := widget.NewLabel("Disk: loading...")
+	netLabel := widget.NewLabel("Network: loading...")
+	hostLabel := widget.NewLabel("Host: loading...")
+
+	// общий апдейтер: получает строку от getter, обновляет label + опционально progress bar
+	update := func(label *widget.Label, bar *widget.ProgressBar, getter func() (string, error)) {
 		go func() {
+			// делаем первый запрос сразу, а потом по таймеру
 			for {
-				text, err := getData()
-				if err != nil {
-					label.SetText("Error")
-				} else {
+				text, err := getter()
+
+				// все изменения UI — внутри fyne.Do
+				fyne.Do(func() {
+					if err != nil {
+						label.SetText("Error")
+						if bar != nil {
+							bar.SetValue(0)
+						}
+						return
+					}
+
 					label.SetText(text)
-				}
+
+					if bar != nil {
+						m := numberRe.FindString(text)
+						if m == "" {
+							bar.SetValue(0)
+						} else {
+							v, err := strconv.ParseFloat(m, 64)
+							if err != nil {
+								bar.SetValue(0)
+							} else {
+								// ProgressBar принимает значение 0.0..1.0
+								bar.SetValue(v / 100.0)
+							}
+						}
+					}
+				})
+
 				time.Sleep(time.Duration(config.Interval) * time.Second)
 			}
 		}()
 	}
 
-	// запускаем обновление всех лейблов
-	updateLabel(cpuLabel, monitor.GetCPUUsage)
-	updateLabel(memLabel, monitor.GetMemoryUsage)
-	updateLabel(diskLabel, monitor.GetDiskUsage)
-	updateLabel(netLabel, monitor.GetNetworkIO)
-	updateLabel(hostLabel, monitor.GetHostInfo)
+	// запускаем обновления
+	update(cpuLabel, cpuBar, monitor.GetCPUUsage)
+	update(memLabel, memBar, monitor.GetMemoryUsage)
+	update(diskLabel, diskBar, monitor.GetDiskUsage)
+	update(netLabel, nil, monitor.GetNetworkIO)
+	update(hostLabel, nil, monitor.GetHostInfo)
 
-	// собираем UI
-	return container.NewVBox(
-		widget.NewLabel("Системный мониторинг"),
-		cpuLabel,
-		memLabel,
-		diskLabel,
-		netLabel,
-		hostLabel,
-	)
+	// простой аккуратный layout
+	cpuBox := container.NewVBox(cpuLabel, cpuBar)
+	memBox := container.NewVBox(memLabel, memBar)
+	diskBox := container.NewVBox(diskLabel, diskBar)
+	rightCol := container.NewVBox(netLabel, hostLabel)
+
+	header := widget.NewLabelWithStyle("📊 Системный мониторинг", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
+	grid := container.NewGridWithColumns(2, cpuBox, memBox, diskBox, rightCol)
+
+	return container.NewVBox(header, grid)
 }

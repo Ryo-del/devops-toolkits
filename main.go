@@ -20,10 +20,10 @@ func main() {
 	tabs := container.NewAppTabs(
 		container.NewTabItem("📊 Мониторинг", monitor.NewMonitorTab()),
 		//container.NewTabItem("📁 Парсер логов", parser.NewParserTab()),
-		container.NewTabItem("Порт сканер", port.NewScannerTab()),
-		container.NewTabItem("Сеть", ping.NewpingTab()),
-		container.NewTabItem("Docker", docker.NewDockerTab()),
-		container.NewTabItem("Настройки", settings.NewSettingsTab()),
+		container.NewTabItem("📡Порт сканер", port.NewScannerTab()),
+		container.NewTabItem("🛜Сеть", ping.NewPingTab()),
+		container.NewTabItem("🐳Docker", docker.NewDockerTab()),
+		container.NewTabItem("⚙️Настройки", settings.NewSettingsTab()),
 	)
 
 	w.SetContent(tabs)
